@@ -40,7 +40,8 @@ jobs:
           content = path.read_text(encoding="utf-8")
           if "__VERSION__" not in content:
               raise SystemExit("Missing __VERSION__ in the tagged page")
-          path.write_text(content.replace("__VERSION__", html.escape(os.environ["VERSION"])), encoding="utf-8")
+          version = html.escape(os.environ["VERSION"])
+          path.write_text(content.replace("__VERSION__", version), encoding="utf-8")
           PY
       - uses: actions/upload-pages-artifact@v3
         with:

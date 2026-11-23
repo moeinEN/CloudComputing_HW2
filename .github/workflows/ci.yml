@@ -118,7 +118,8 @@ jobs:
           if git show-ref --verify --quiet "$ref"; then
             test "$(git rev-parse "$ref^{commit}")" = "$GITHUB_SHA"
           else
-            git -c user.name=github-actions -c user.email=github-actions[bot]@users.noreply.github.com \
+            git -c user.name=github-actions \
+              -c 'user.email=github-actions[bot]@users.noreply.github.com' \
               tag -a "$VERSION" "$GITHUB_SHA" -m "Release $VERSION from $GITHUB_SHA"
             git push origin "$ref"
           fi
