@@ -1,0 +1,155 @@
+name: Lab queue CI
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: |
+          python -m pip install ruff==0.11.13
+          python -m ruff check part2/app/
+      - uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: part2/Dockerfile
+
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: part2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: |
+          python -m pip install -r requirements-dev.txt
+          pytest
+
+  build:
+    needs: [lint, test]
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.build.outputs.version }}
+      image-id: ${{ steps.build.outputs.image-id }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the queue image
+        id: build
+        run: |
+          stamp=$(git show -s --format=%ct "$GITHUB_SHA")
+          version="v$(date -u -d "@$stamp" +%Y.%m.%d.%H%M%S)-$GITHUB_SHA"
+          docker build --build-arg "SOURCE_DATE_EPOCH=$stamp" \
+            --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            -t lab-queue:build part2
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "image-id=$(docker image inspect --format '{{.Id}}' lab-queue:build)" >> "$GITHUB_OUTPUT"
+      - name: Save the image for the publish runner
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: docker save -o "$RUNNER_TEMP/lab-queue.tar" lab-queue:build
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with:
+          name: lab-queue
+          path: ${{ runner.temp }}/lab-queue.tar
+          if-no-files-found: error
+          overwrite: true
+
+  push:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: lab-queue
+          path: ${{ runner.temp }}
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish the saved build
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+          IMAGE_ID: ${{ needs.build.outputs.image-id }}
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/lab-queue"
+          docker load -i "$RUNNER_TEMP/lab-queue.tar"
+          test "$(docker image inspect --format '{{.Id}}' lab-queue:build)" = "$IMAGE_ID"
+          docker tag lab-queue:build "$image:$VERSION"
+          docker tag lab-queue:build "$image:latest"
+          docker push "$image:$VERSION"
+          docker push "$image:latest"
+
+  tag:
+    needs: [build, push]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-tags: true
+      - name: Record the release commit
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          ref="refs/tags/$VERSION"
+          if git show-ref --verify --quiet "$ref"; then
+            test "$(git rev-parse "$ref^{commit}")" = "$GITHUB_SHA"
+          else
+            git -c user.name=github-actions -c user.email=github-actions[bot]@users.noreply.github.com \
+              tag -a "$VERSION" "$GITHUB_SHA" -m "Release $VERSION from $GITHUB_SHA"
+            git push origin "$ref"
+          fi
+
+  pages:
+    needs: [build, tag]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    concurrency:
+      group: github-pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Render the released version
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          cp -R part2/site "$RUNNER_TEMP/site"
+          sed -i "s/__VERSION__/$VERSION/g" "$RUNNER_TEMP/site/index.html"
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          name: github-pages-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/site
+      - uses: actions/deploy-pages@v4
+        id: deployment
+        with:
+          artifact_name: github-pages-${{ github.run_attempt }}
