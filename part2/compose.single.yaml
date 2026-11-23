@@ -1,4 +1,4 @@
 services:
   app:
     ports:
-      - "${APP_PORT:?Set APP_PORT in part2/.env}:8000"
+      - "${APP_PORT:?Set APP_PORT in the environment or Compose env file}:8000"
