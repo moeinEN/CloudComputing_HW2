@@ -2,6 +2,7 @@
 
 Run from part2: python tools/concurrent_join.py --url http://localhost:8000
 Use --drain to also check names via /next after the join batch has finished.
+Use --parallel-next to run the batch of /next requests concurrently.
 This consumes the queue; use only a separate, empty test queue.
 """
 
@@ -19,7 +20,9 @@ def main() -> int:
     parser.add_argument("--url", default="http://localhost:8000")
     parser.add_argument("--count", type=int, default=200)
     parser.add_argument("--workers", type=int, default=200)
-    parser.add_argument("--drain", action="store_true")
+    drain_mode = parser.add_mutually_exclusive_group()
+    drain_mode.add_argument("--drain", action="store_true")
+    drain_mode.add_argument("--parallel-next", action="store_true")
     args = parser.parse_args()
     if args.count < 1 or args.workers < 1:
         parser.error("count and workers must be positive")
@@ -67,7 +70,13 @@ def main() -> int:
               "unexpected_tickets": sorted(set(tickets) - expected),
               "errors": errors}
     passed = not errors and not duplicates and set(tickets) == expected
-    if args.drain:
+    if args.parallel_next:
+        with ThreadPoolExecutor(max_workers=min(args.workers, args.count)) as pool:
+            replies = list(pool.map(post, ["/next"] * args.count))
+        taken = [body for status, body in replies if status == 200]
+        report["next_errors"] = [reply for reply in replies if reply[0] != 200]
+        status, body = post("/next")
+    elif args.drain:
         taken = []
         # Bound the loop so a broken /next implementation cannot run forever.
         for _ in range(args.count + 1):
@@ -75,6 +84,7 @@ def main() -> int:
             if status != 200:
                 break
             taken.append(body)
+    if args.drain or args.parallel_next:
         actual = Counter(taken)
         wanted = Counter(names)
         report.update({"taken": len(taken),

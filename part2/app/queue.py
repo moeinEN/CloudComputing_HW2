@@ -5,7 +5,7 @@ from __future__ import annotations
 import fcntl
 import os
 from pathlib import Path
-from tempfile import NamedTemporaryFile
+from tempfile import mkstemp
 
 
 def _clean_name(name: str) -> str:
@@ -48,11 +48,11 @@ def take(path: str | Path) -> str:
         if not names:
             raise LookupError("empty")
         first, *rest = names
-        temp = NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent, delete=False)
+        descriptor, temp_path = mkstemp(dir=path.parent)
         try:
-            with temp:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as temp:
                 temp.writelines(f"{name}\n" for name in rest)
-            os.replace(temp.name, path)
+            os.replace(temp_path, path)
         finally:
-            Path(temp.name).unlink(missing_ok=True)
+            Path(temp_path).unlink(missing_ok=True)
         return first
