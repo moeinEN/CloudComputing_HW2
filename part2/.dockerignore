@@ -2,3 +2,4 @@
 !app/
 app/*
 !app/*.py
+!requirements-redis.txt

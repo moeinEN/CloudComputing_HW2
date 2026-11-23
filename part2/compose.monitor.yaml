@@ -1,0 +1,21 @@
+services:
+  app:
+    environment:
+      QUEUE_METRICS: "1"
+  db-exporter:
+    image: oliver006/redis_exporter:v1.69.0
+    environment:
+      REDIS_ADDR: "${REDIS_URL:-redis://db:6379/0}"
+    networks:
+      - default
+      - db-network
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    ports:
+      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+
+volumes:
+  prometheus-data:

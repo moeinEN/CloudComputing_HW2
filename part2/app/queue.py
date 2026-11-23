@@ -8,6 +8,10 @@ from pathlib import Path
 from tempfile import mkstemp
 
 
+class QueueUnavailable(Exception):
+    """A storage operation could not be completed."""
+
+
 def _clean_name(name: str) -> str:
     if not isinstance(name, str) or (name + "\n").splitlines() != [name]:
         raise ValueError("invalid name")
