@@ -41,7 +41,7 @@ def serve(host: str, port: int, data_dir: str) -> None:
                     if not isinstance(payload, dict):
                         raise ValueError("expected an object")
                     ticket = join(queue_path, payload.get("name"))
-                except (ValueError, UnicodeError):
+                except ValueError:
                     self.reply(400, "invalid name or body")
                 else:
                     self.reply(200, str(ticket))
