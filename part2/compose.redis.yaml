@@ -1,0 +1,32 @@
+services:
+  app:
+    build:
+      dockerfile: Dockerfile.redis
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      REDIS_URL: "${REDIS_URL:-redis://db:6379/0}"
+    volumes: !reset []
+    networks:
+      - default
+      - db-network
+  db:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec", "--save", ""]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 1s
+      retries: 15
+    volumes:
+      - redis-data:/data
+    networks:
+      - db-network
+
+networks:
+  db-network:
+    internal: true
+
+volumes:
+  redis-data:

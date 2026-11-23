@@ -64,3 +64,47 @@ git worktree add --detach ../cc-hw2-unlocked b40a8cba4b57253ab53327e944ccce7d861
 ```
 
 هر سه نسخه فایل `/data/queue.lock` را جداگانه باز می‌کنند. قفل، خواندن و تغییر صف را پوشش می‌دهد. `next` فایل موقت همان پوشه را با `os.replace` جایگزین می‌کند. نوبت، طول صف در لحظهٔ افزودن است و پس از برداشت ممکن است همان شماره دوباره صادر شود.
+
+## بخش امتیازی Redis
+
+در `part2/`، با همان `queue_env` بالا و روی صف آزمایشی خالی اجرا کنید.
+
+```sh
+docker compose --env-file "$queue_env" -p queue-redis -f compose.yaml -f compose.redis.yaml up -d --build --scale app=3
+python tools/concurrent_join.py --url http://localhost:8000 --parallel-next
+```
+
+`REDIS_URL` از فایل محیطی بیرون مخزن قابل تنظیم است. آدرس پیش‌فرض `redis://db:6379/0` است و Redis پورت میزبان ندارد. هر `RPUSH` طول جدید را به‌صورت اتمیک برمی‌گرداند و `LPOP` قدیمی‌ترین نام را برمی‌دارد. ذخیره‌سازی AOF با `appendfsync everysec` در volume مستقل انجام می‌شود و خاموش‌شدن ناگهانی می‌تواند حدود یک ثانیه از تغییرات را از بین ببرد.
+
+برای آزمایش ماندگاری، یک نام در صف بگذارید. سپس `db` را بدون حذف volume با `docker compose ... rm -sf db` و `docker compose ... up -d db` دوباره بسازید و نام را از `/next` بخوانید. در هر دو دستور همان نام پروژه و همان فایل‌های Compose را بدهید.
+
+آزمون‌های جداگانهٔ Redis و metrics به سرویس زنده نیاز ندارند.
+
+```sh
+python -m pip install -r requirements-dev.txt -r requirements-redis.txt
+pytest tests_bonus
+```
+
+## بخش امتیازی Prometheus
+
+پروژهٔ Redis را پیش از اجرا متوقف کنید تا پورت میزبان آزاد شود.
+
+```sh
+docker compose --env-file "$queue_env" -p queue-monitor \
+  -f compose.yaml -f compose.redis.yaml -f compose.monitor.yaml up -d --build --scale app=3
+```
+
+Prometheus به‌طور پیش‌فرض از `http://localhost:9090` قابل دسترسی است. روی `/targets` سه نمونهٔ app و یک exporter را بررسی کنید. Prometheus هر app را مستقیم از DNS داخلی scrape می‌کند. درخواست‌های مسیر `/metrics` در نرخ HTTP حساب نمی‌شوند.
+
+| نمودار | PromQL |
+| --- | --- |
+| نرخ درخواست | `sum(rate(http_requests_total{job="app"}[1m]))` |
+| علت خطا بر اساس status | `sum by (status) (rate(http_requests_total{job="app",status=~"4..\|5.."}[1m]))` |
+| متوسط زمان پاسخ | `sum(rate(http_request_duration_seconds_sum{job="app"}[1m])) / sum(rate(http_request_duration_seconds_count{job="app"}[1m]))` |
+| صدک ۹۵ | `histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{job="app"}[1m])))` |
+| زمان عملیات Redis از نگاه برنامه | `sum by (operation) (rate(queue_db_operation_duration_seconds_sum[1m])) / sum by (operation) (rate(queue_db_operation_duration_seconds_count[1m]))` |
+| طول صف مشترک | `max(queue_length{job="app"})` |
+| اتصال به Redis | `redis_up{job="db"}` |
+| حافظه و نرخ دستورهای Redis | `redis_memory_used_bytes{job="db"}` و `rate(redis_commands_processed_total{job="db"}[1m])` |
+
+برای چند دقیقه، دسته‌های ۲۰۰تایی join همراه با تخلیهٔ صف اجرا کنید و چند نام نامعتبر بفرستید. با توقف موقت `db`، درخواست معتبر به `/join` یا `/next` پاسخ ۵۰۳ می‌گیرد. وقتی Redis دوباره آماده شود همین appها وصل می‌شوند. `up` دسترسی به exporter و `redis_up` دسترسی exporter به Redis را نشان می‌دهد. gauge طول صف در زمان قطعی مقدار NaN می‌دهد.
