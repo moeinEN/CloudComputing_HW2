@@ -20,12 +20,11 @@ pytest
 
 ## یک نسخه از سرویس
 
-در `part2/` فایل `.env` را از روی `.env.example` بسازید و مثلاً `APP_PORT=8000` بگذارید.
+فایل محلی `.env` را بیرون مخزن از روی `.env.example` بسازید و مثلاً `APP_PORT=8000` بگذارید. دستورهای زیر را در `part2/` اجرا کنید و `queue_env` را روی مسیر فایل محلی بگذارید.
 
 ```sh
-cp .env.example .env
-printf 'APP_PORT=8000\n' > .env
-docker compose -p queue-single -f compose.yaml -f compose.single.yaml up -d --build app
+queue_env=../../HW2_40231039/.env
+docker compose --env-file "$queue_env" -p queue-single -f compose.yaml -f compose.single.yaml up -d --build app
 curl -fsS http://localhost:8000/health
 ```
 
@@ -35,11 +34,11 @@ curl -fsS http://localhost:8000/health
 docker ps -a
 docker stats --no-stream
 docker volume inspect queue-single_queue-data
-docker compose -p queue-single exec app cat /data/queue.txt
-docker compose -p queue-single rm -sf app
-docker compose -p queue-single -f compose.yaml -f compose.single.yaml up -d --build app
-docker compose -p queue-single exec app cat /data/queue.txt
-docker compose -p queue-single down
+docker compose --env-file "$queue_env" -p queue-single exec app cat /data/queue.txt
+docker compose --env-file "$queue_env" -p queue-single rm -sf app
+docker compose --env-file "$queue_env" -p queue-single -f compose.yaml -f compose.single.yaml up -d --build app
+docker compose --env-file "$queue_env" -p queue-single exec app cat /data/queue.txt
+docker compose --env-file "$queue_env" -p queue-single down
 ```
 
 `down` بدون `-v` دادهٔ آزمایش را نگه می‌دارد. برای مشاهدهٔ بازسازی image پس از تغییر کد، بعد از تغییر یک کامنت در `app/` دستور `up -d --build app` را با همان گزینه‌ها تکرار کنید.
@@ -47,13 +46,13 @@ docker compose -p queue-single down
 ## سه نسخه پشت nginx
 
 ```sh
-docker compose -p queue-locked up -d --build --scale app=3
-docker compose -p queue-locked ps
+docker compose --env-file "$queue_env" -p queue-locked up -d --build --scale app=3
+docker compose --env-file "$queue_env" -p queue-locked ps
 curl -fsS http://localhost:8000/health
 python tools/concurrent_join.py --url http://localhost:8000 --drain
 python tools/concurrent_join.py --url http://localhost:8000 --parallel-next
-docker compose -p queue-locked logs --no-log-prefix proxy | grep 'upstream='
-docker compose -p queue-locked down
+docker compose --env-file "$queue_env" -p queue-locked logs --no-log-prefix proxy | grep 'upstream='
+docker compose --env-file "$queue_env" -p queue-locked down
 ```
 
 برای هر آزمایش از صف خالی استفاده کنید. یک اجرای موفق هر ۲۰۰ نام را برمی‌دارد و در پایان `404 empty` می‌گیرد. اگر آزمون شکست خورد، پیش از تکرار از نام پروژهٔ تازه استفاده کنید تا volume خالی داشته باشید. سه آدرس upstream متفاوت در log درخواست‌ها رسیدن ترافیک به هر سه نسخه را نشان می‌دهد.
