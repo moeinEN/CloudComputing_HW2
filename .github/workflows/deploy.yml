@@ -1,0 +1,52 @@
+name: Deploy a Git tag to Pages
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Git tag to deploy
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  pages:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: github-pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ inputs.tag }}
+          persist-credentials: false
+      - name: Render the selected version
+        env:
+          VERSION: ${{ inputs.tag }}
+        run: |
+          cp -R part2/site "$RUNNER_TEMP/site"
+          python3 - <<'PY'
+          import html
+          import os
+          from pathlib import Path
+
+          path = Path(os.environ["RUNNER_TEMP"]) / "site" / "index.html"
+          content = path.read_text(encoding="utf-8")
+          if "__VERSION__" not in content:
+              raise SystemExit("Missing __VERSION__ in the tagged page")
+          path.write_text(content.replace("__VERSION__", html.escape(os.environ["VERSION"])), encoding="utf-8")
+          PY
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          name: github-pages-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/site
+      - uses: actions/deploy-pages@v4
+        id: deployment
+        with:
+          artifact_name: github-pages-${{ github.run_attempt }}
